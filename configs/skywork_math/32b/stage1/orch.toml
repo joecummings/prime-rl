@@ -27,3 +27,4 @@ ids = ["math500", "aime24", "aime25"]
 rollouts_per_example = [1, 32, 32]
 
 [ckpt]
+interval = 200

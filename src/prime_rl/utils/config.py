@@ -61,7 +61,7 @@ class LogExtrasConfig(BaseConfig):
     distributions: Annotated[
         bool,
         Field(
-            description="Whether to log distributions, like rewards, advantages, etc. to W&B tables.",
+            description="Whether to log distributions (like rewards, advantages, etc.) to W&B tables.",
         ),
     ] = True
 
@@ -77,6 +77,7 @@ class LogExtrasConfig(BaseConfig):
 class WandbMonitorConfig(BaseConfig):
     """Configures logging to Weights and Biases."""
 
+    # Shared configs (May be overwritten by WandbConfig from `rl.py`)
     project: Annotated[str, Field(description="The W&B project to log to.")] = "prime-rl"
 
     name: Annotated[
@@ -86,6 +87,9 @@ class WandbMonitorConfig(BaseConfig):
         ),
     ] = None
 
+    offline: Annotated[bool, Field(description="Whether to run W&B in offline mode.")] = False
+
+    # Individual configs (can only be specified on trainer or orchestrator)
     id: Annotated[
         str | None,
         Field(
@@ -93,21 +97,12 @@ class WandbMonitorConfig(BaseConfig):
         ),
     ] = None
 
-    dir: Annotated[
-        Path | None,
-        Field(
-            description="Path to the directory to keep local logs. It will automatically create a `wandb` subdirectory to store run logs.",
-        ),
-    ] = Path("logs")
-
-    offline: Annotated[bool, Field(description="Whether to run W&B in offline mode.")] = False
-
     log_extras: Annotated[
         LogExtrasConfig | None,
         Field(
             description="Configuration for logging extras to W&B tables. If None, no extras are logged.",
         ),
-    ] = None
+    ] = LogExtrasConfig()
 
 
 class MultiMonitorConfig(BaseConfig):

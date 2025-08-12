@@ -58,7 +58,7 @@ def train(config: TrainerConfig):
 
     # Setup the monitor
     logger.info(f"Initializing monitor ({config.monitor})")
-    monitor = setup_monitor(config.monitor, run_config=config)
+    monitor = setup_monitor(config.monitor, outputs_dir=config.outputs_dir, run_config=config)
 
     # TODO(Mika): Move this to typed env var
     # Allow eager fallback during production so that training runs don't die if compile fails
@@ -69,14 +69,13 @@ def train(config: TrainerConfig):
     torch.set_float32_matmul_precision("high")
     torch.cuda.set_device(world.rank)
 
-    if config.weights.path and world.rank == 0:
-        if envs.SHARDCAST_OUTPUT_DIR is not None:
-            logger.info(f"Initializing shardcast from {envs.SHARDCAST_OUTPUT_DIR}")
-            shardcast.initialize(
-                envs.SHARDCAST_OUTPUT_DIR,
-                # +1 to ensure to not delete current checkpoint when async_level=0
-                max_distribution_folders=config.async_level + 1,
-            )
+    if world.rank == 0 and envs.SHARDCAST_OUTPUT_DIR is not None:
+        logger.info(f"Initializing shardcast from {envs.SHARDCAST_OUTPUT_DIR}")
+        shardcast.initialize(
+            envs.SHARDCAST_OUTPUT_DIR,
+            # +1 to ensure to not delete current checkpoint when async_level=0
+            max_distribution_folders=config.async_level + 1,
+        )
 
     # Initialize the model and tokenizer
     logger.info(f"Initializing model and tokenizer ({config.model})")
@@ -99,10 +98,10 @@ def train(config: TrainerConfig):
 
     # Get checkpoint managers
     logger.info(f"Initializing weight checkpoint manager ({config.weights})")
-    weight_ckpt_manager = WeightCheckpointManager(config.weights, config.ckpt, config.async_level)
+    weight_ckpt_manager = WeightCheckpointManager(config.outputs_dir, config.weights, config.ckpt, config.async_level)
     if config.ckpt:
         logger.info(f"Initializing checkpoint manager ({config.ckpt})")
-        ckpt_manager = CheckpointManager(config.ckpt)
+        ckpt_manager = CheckpointManager(config.outputs_dir, config.ckpt)
 
     # Optionally, resume training from a checkpoint
     progress = Progress()
@@ -127,7 +126,7 @@ def train(config: TrainerConfig):
                 model_name_or_path = (
                     config.model.name
                     if not (config.ckpt and config.ckpt.resume_step)
-                    else config.weights.path / f"step_{step}"
+                    else weight_ckpt_manager._get_step_path(step)
                 )
                 model_config = deepcopy(config.model)
                 model_config.name = model_name_or_path
@@ -136,7 +135,7 @@ def train(config: TrainerConfig):
 
     # Set up the data loader (Optionally, use a fake data loader for debugging)
     logger.info(f"Initializing data loader ({config.data})")
-    dataloader = DataLoader(config.data.path, progress.step)
+    dataloader = DataLoader(config.outputs_dir, progress.step)
     if config.data.fake:
         dataloader = FakeDataLoader(config.data.fake)
 
@@ -150,13 +149,22 @@ def train(config: TrainerConfig):
             model_path = weight_ckpt_manager.save(model, tokenizer, step=progress.step)
             save_weights_time = time.time() - save_weights_start_time
 
-        # Save the full checkpoint (if we are at an interval step and not at the first step)
+        # Save the full checkpoint (if we are at an interval step and not at the first or last step)
+        is_last_step = config.max_steps is not None and progress.step == config.max_steps - 1
         save_ckpt_time = 0
-        if config.ckpt and config.ckpt.interval and not is_first_step and progress.step % config.ckpt.interval == 0:
+        if (
+            config.ckpt
+            and config.ckpt.interval
+            and not (is_first_step or is_last_step)
+            and progress.step % config.ckpt.interval == 0
+        ):
             logger.info(f"Saving checkpoint at step {progress.step}")
             save_ckpt_start_time = time.time()
             ckpt_manager.save(model, [optimizer], scheduler, progress, step=progress.step)
             save_ckpt_time = time.time() - save_ckpt_start_time
+
+            # Maybe clean up old trainer checkpoints
+            ckpt_manager.maybe_clean()
 
         # Break if we have reached the maximum number of steps
         if config.max_steps is not None and progress.step >= config.max_steps:
@@ -213,7 +221,6 @@ def train(config: TrainerConfig):
                     shifted_logits = shift_logits(logits)
                     shifted_logits = shifted_logits / temperature
                     recomputed_logprobs = selective_log_softmax(shifted_logits, input_ids)
-                    del logits, shifted_logits
 
                     # Compute the recomputed logprob error
                     recomputed_logprob_error = torch.exp(recomputed_logprobs - logprobs)
