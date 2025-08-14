@@ -14,8 +14,7 @@ from verifiers import load_environment
 from verifiers.types import GenerateOutputs, ProcessedOutputs
 from transformers import AutoTokenizer
 
-
-from prime_rl.orchestrator.ckpt import CheckpointManager, Progress
+from prime_rl.orchestrator.ckpt import CheckpointManager, RLProgress as Progress
 from prime_rl.orchestrator.client import (
     check_has_model,
     check_health,

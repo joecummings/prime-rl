@@ -35,13 +35,15 @@ dependencies = [
     "vf-math500",
     "vf-aime2024",
     "vf-aime2025",
+    "muon_fsdp2>=0.3.0"
 ]
 
 [project.scripts]
 rl = "prime_rl.rl:main"
-trainer = "prime_rl.trainer.train:main"
+trainer = "prime_rl.trainer.rl.train:main"
 orchestrator = "prime_rl.orchestrator.orchestrator:main"
 inference = "prime_rl.inference.server:main"
+sft = "prime_rl.trainer.sft.train:main"
 eval = "prime_rl.eval.eval:main"
 
 [build-system]
@@ -83,7 +85,6 @@ vf-alphabet-sort = { workspace = true }
 vf-math500 = { url = "https://hub.primeintellect.ai/will/vf-math500/@latest/vf_math500-0.1.7-py3-none-any.whl" }
 vf-aime2024 = { url = "https://hub.primeintellect.ai/will/vf-aime2024/@latest/vf_aime2024-0.1.7-py3-none-any.whl" }
 vf-aime2025 = { url = "https://hub.primeintellect.ai/will/vf-aime2025/@latest/vf_aime2025-0.1.7-py3-none-any.whl" }
-
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
