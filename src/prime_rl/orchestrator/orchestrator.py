@@ -105,6 +105,7 @@ async def orchestrate(config: OrchestratorConfig):
         if (
             config.ckpt
             and config.ckpt.interval
+            and ckpt_manager is not None
             and not (is_first_step or is_last_step)
             and progress.step % config.ckpt.interval == 0
         ):
@@ -191,16 +192,23 @@ async def orchestrate(config: OrchestratorConfig):
                     logger.info(
                         f"Evaluating {env_id} (num_examples={num_examples}, rollouts_per_example={rollouts_per_example}) with args {env_args}"
                     )
+                    # Build inputs dataset (mirror Environment.evaluate but async)
+                    if getattr(vf_eval, "eval_dataset", None) is None:
+                        logger.info(f"eval_dataset is not set for {env_id}, falling back to train dataset")
+                        inputs = vf_eval.get_dataset(n=num_examples)
+                    else:
+                        inputs = vf_eval.get_eval_dataset(n=num_examples)
+                    assert inputs is not None
+                    if rollouts_per_example > 1:
+                        inputs = inputs.repeat(rollouts_per_example)
 
-                    # Run evaluation (sync via thread to avoid blocking event loop)
-                    results = await asyncio.to_thread(
-                        vf_eval.evaluate,
-                        client,
-                        config.model.name,
-                        sampling_args,
-                        num_examples,
-                        rollouts_per_example,
-                        True,  # score_rollouts
+                    # Run async generation and scoring
+                    results = await vf_eval.a_generate(
+                        inputs=inputs,
+                        client=client,
+                        model=config.model.name,
+                        sampling_args=sampling_args,
+                        score_rollouts=True,
                     )
 
                     # Average reward
@@ -515,7 +523,7 @@ async def orchestrate(config: OrchestratorConfig):
         monitor.wandb.log_final_distributions()
 
     # Write final checkpoint
-    if config.ckpt:
+    if config.ckpt and ckpt_manager:
         logger.info("Writing final checkpoint")
         ckpt_manager.save(progress, step=progress.step)
 
